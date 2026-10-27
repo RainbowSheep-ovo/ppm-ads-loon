@@ -1,5 +1,5 @@
-#!name=皮皮喵极速版 · 去广告
-#!desc=拦截穿山甲(Pangle/CSJ)广告拉取、SDK 埋点与 HTTP-DNS 下发，去掉开屏/插屏/信息流/激励视频；连带屏蔽试玩广告组件。纯规则实现，无需额外脚本。
+#!name=皮皮喵Lite · 去开屏广告
+#!desc=精准拦截开屏广告：Google AdMob（真实广告来源）+ 腾讯优量汇 mediation 兜底 + 穿山甲备用链路。纯域名规则，不需要 MITM。
 #!author=RainbowSheep-ovo
 #!homepage=https://github.com/RainbowSheep-ovo/ppm-ads-loon
 #!date=2026-10-28
@@ -7,41 +7,68 @@
 
 [Rule]
 # ============================================================
-#  1. 穿山甲（Pangle / CSJUnion）广告投放域名
-#     这是本 App 的主广告 SDK（v5.5.0.7，appid 5000546）。
-#     其中 api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads
-#     是【唯一的广告拉取接口】，掐掉它 = 拉不到任何广告。
+#  1. Google AdMob —— 开屏广告的真正来源
+#
+#     抓包证据（2026-10-28 第二次抓包）：
+#       GET googleads.g.doubleclick-cn.net/mads/gma        → 35171B 广告响应
+#       GET googleads.g.doubleclick-cn.net/getconfig/pubsetting
+#              ?app_name=com.gentle.ppcat-free
+#              &client=ca-app-pub-5440663071705011
+#              &admob_appcc=7725269900
+#       GET googleads.g.doubleclick-cn.net/mads/static/mad/sdk/native/
+#              sdk-core-loader-inline.html
+#       GET pagead2.googlesyndication-cn.com/pcs/activeview  （曝光打点）
+#       GET csi.gstatic.com/csi ... layout=interstitial_campari_v7
+#
+#     结论：开屏是 AdMob 的 video interstitial（Campari 素材）。
+#     注意域名带 -cn 后缀，这是 Google 在国内的广告服务器镜像，
+#     普通屏蔽 googleads.g.doubleclick.net 是漏的。
+# ============================================================
+DOMAIN-SUFFIX,doubleclick-cn.net,REJECT
+DOMAIN-SUFFIX,doubleclick.net,REJECT
+DOMAIN-SUFFIX,googlesyndication-cn.com,REJECT
+DOMAIN-SUFFIX,googlesyndication.com,REJECT
+DOMAIN-SUFFIX,googleadservices-cn.com,REJECT
+DOMAIN-SUFFIX,googleadservices.com,REJECT
+DOMAIN-SUFFIX,admob.com,REJECT
+
+# ============================================================
+#  2. 腾讯优量汇（GDT）—— AdMob 聚合的兜底填充源
+#
+#     证据：POST sdk.e.qq.com/mediation?version=1
+#           POST sdk.e.qq.com/launch / event / msg
+#           AdMob 回执 label=admob_mediation_request_fill_result
+#           mediation_fill_status=-3.0.465.-3（这次没填充上）
+#
+#     AdMob 被拦后可能会退到它，一起掐掉。
+# ============================================================
+DOMAIN,sdk.e.qq.com,REJECT
+DOMAIN-SUFFIX,gdt.qq.com,REJECT
+
+# ============================================================
+#  3. 穿山甲（Pangle）—— 备用链路，当前是坏的
+#
+#     证据：POST api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads/
+#           返回 {"status_code":40006,"desc":"广告位ID不合法"}
+#
+#     即 App 里填的穿山甲广告位 ID 无效，拉不到广告；
+#     但它每次启动仍会下载 507KB×2 的渲染器和 21KB 的 settings，
+#     所以照样拦掉，省流量也防它以后修好。
+#
+#     ⚠ 注意有 toutiao1.com（多一个 1）和 toutiao.com 两个域名，
+#       只写后者的 suffix 是匹配不到前者的。
 # ============================================================
 DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
+DOMAIN-SUFFIX,pangolin-sdk-toutiao1.com,REJECT
 DOMAIN-SUFFIX,pangle.io,REJECT
 DOMAIN-SUFFIX,pglstatp-toutiao.com,REJECT
 
-# 穿山甲创意的 c2s 上报 / 设备信息
-DOMAIN,ad.toutiao.com,REJECT
-DOMAIN,dm.toutiao.com,REJECT
-DOMAIN-SUFFIX,adshare.toutiao.com,REJECT
-
 # ============================================================
-#  2. 字节 SDK 埋点 & TTNet HTTP-DNS
-#     get_domains 会给 App 下发广告服务器 IP，掐掉可避免
-#     SDK 绕过域名直接从 IP 拉广告。
+#  4. 以下不是广告，只影响启动速度和流量，默认关闭（删掉行首 # 即可启用）
 # ============================================================
-DOMAIN,mssdk.volces.com,REJECT
-DOMAIN,tnc3-alisc1.zijieapi.com,REJECT
-DOMAIN,tnc0-alisc1.zijieapi.com,REJECT
-DOMAIN,tnc0-aliec2.zijieapi.com,REJECT
-DOMAIN,tnc0-bjlgy.zijieapi.com,REJECT
-
-[URL Rewrite]
-# ============================================================
-#  穿山甲「试玩广告(Playable)」组件
-#  lf-cdn-tos.bytescm.com 是字节公共 CDN，不能整域封掉，
-#  只精准拦截广告静态资源目录。
-# ============================================================
-^https?:\/\/lf-cdn-tos\.bytescm\.com\/obj\/static\/ad\/ reject-200
-^https?:\/\/lf1-cdn-tos\.bytegoofy\.com\/goofy\/fe\/ies\/bridge\/bytedance\/ reject-200
-^https?:\/\/lf3-static\.bytednsdoc\.com\/obj\/static\/ad\/ reject-200
-
-[MITM]
-# 上面三条 URL Rewrite 对应的 CDN 需要解密才能匹配到路径。
-hostname = lf-cdn-tos.bytescm.com,lf1-cdn-tos.bytegoofy.com,lf3-static.bytednsdoc.com
+# AdMob 性能打点，本次抓包 7 次、每次 204，纯遥测
+# DOMAIN,csi.gstatic.com,REJECT
+# AdMob 一键跳转处理脚本
+# DOMAIN,www.gstatic.cn,REJECT
+# 字节 AppLog / 设备注册（toblog.ctobsnssdk.com），启动时 3 次
+# DOMAIN-SUFFIX,ctobsnssdk.com,REJECT

@@ -1,9 +1,11 @@
-# 皮皮喵极速版 · Loon 去广告插件
+# 皮皮喵Lite / 皮皮喵极速版 · Loon 去开屏广告
 
-> 基于真机抓包（Loon 导出的 HAR）分析后编写的 Loon 插件，用于去掉 **皮皮喵极速版 / 皮皮喵Lite（iOS）** 中的开屏、插屏、信息流与激励视频广告。
+> 基于两轮真机抓包定位后编写的 Loon 插件，目标是**只去掉开屏广告**，不动其他任何东西。
 
-- **纯规则实现**：不含远程 JS 脚本，不依赖 `raw.githubusercontent.com` 的可用性，断网重连也不会"脚本下载失败"。
-- **精准打击**：只拦该 App 真正用到的广告链路（穿山甲 Pangle / CSJUnion），不做"整域大扫除"。
+**核心结论**：这个 App 的开屏广告来自 **Google AdMob**，不是穿山甲。第一版插件只拦了穿山甲（`pangle.io` / `pangolin-sdk-toutiao.com`），所以完全没生效——详见 [为什么第一版没生效](#三为什么第一版完全没生效复盘)。
+
+- **纯域名规则**：不需要 MITM、不需要证书、不依赖远程脚本，装完即生效。
+- **只打广告**：不碰书源、书架、阅读、下载相关的任何域名。
 
 ---
 
@@ -55,105 +57,125 @@ https://cdn.jsdelivr.net/gh/RainbowSheep-ovo/ppm-ads-loon@main/ppm-ads.plugin
 
 ### 方式 D：只要规则，不要插件
 
-不想用插件、想把规则并进自己的主配置或规则组，可用纯规则版：
-
 ```
-https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/rules/pangle-ads.list
+https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/rules/ppm-ads.list
 ```
 
 添加方式：Loon → 配置 → 规则 → 添加规则订阅 → 粘贴上面的地址 → 订阅策略选 `REJECT`。
 
 ### 安装后必做
 
-- **开启全局 MITM**：Loon → 配置 → MITM → 打开「MitM 总开关」，并按提示安装 + 信任证书。
-  > 不开启也能用：域名 `REJECT` 规则不需要解密，**广告照样会被拦掉**；只是「试玩广告组件」那两条 URL Rewrite 不生效而已。
-- **杀掉 App 后重开**：穿山甲 SDK 会缓存已下发的广告素材，冷启动一次才会走新的网络请求。
+**从后台彻底划掉皮皮喵再重开。** 开屏广告是冷启动时才请求的，不重开可能还是看缓存。
 
 ---
 
 ## 二、它到底拦了什么
 
-抓包显示，该 App 的广告链路是**字节跳动「穿山甲」SDK（iOS v5.5.0.7，appid `5000546`）**，冷启动时会依次请求：
+第二次抓包（`.har`，37 条请求）已经把链路拍得很清楚：
 
-| 域名 | 作用 | 处理 |
+| 域名 / 接口 | 角色 | 证据 |
 | --- | --- | --- |
-| `api-access.pangolin-sdk-toutiao.com` | **广告拉取接口** `get_ads` | 域名 REJECT |
-| `*.pangle.io` | 广告素材 CDN | 域名 REJECT |
-| `*.pglstatp-toutiao.com` | 曝光/点击上报 | 域名 REJECT |
-| `mssdk.volces.com` | SDK 埋点上报（单次 POST 可达 2.8 KB） | 域名 REJECT |
-| `tnc3-alisc1.zijieapi.com` 等 | TTNet **HTTP-DNS**，会给 App 下发广告服务器 IP | 域名 REJECT |
-| `lf-cdn-tos.bytescm.com/obj/static/ad/...` | 试玩广告（Playable）组件 | URL Rewrite → 空 200 |
+| `googleads.g.doubleclick-cn.net/mads/gma` | **开屏广告请求** | 返回 35171 B 广告响应体 |
+| `.../getconfig/pubsetting` | AdMob 初始化 | `app_name=com.gentle.ppcat-free`、`client=ca-app-pub-5440663071705011`、`admob_appcc=7725269900` |
+| `.../mads/static/mad/sdk/native/sdk-core-loader-inline.html` | 广告 WebView 壳 | AdMob SDK `afma-sdk-i-v9.14.0` |
+| `pagead2.googlesyndication-cn.com/pcs/activeview` | 曝光打点 | 200 |
+| `pagead2.googleadservices-cn.com/pagead/adview` | 广告展示页 | 200 |
+| `csi.gstatic.com/csi` | AdMob 性能打点 | 7 次，`layout=interstitial_campari_v7` |
+| `sdk.e.qq.com/mediation`、`/launch`、`/event` | **腾讯优量汇**（AdMob 聚合兜底） | `label=admob_mediation_request_fill_result`、`mediation_fill_status=-3.0.465.-3`（这次没填上） |
+| `api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads/` | 穿山甲拉广告 | 返回 `{"status_code":40006,"desc":"广告位ID不合法"}` |
+| `api-access.pangolin-sdk-toutiao**1**.com/...` | 穿山甲备用域名 | **多一个 `1`**，第一版就是漏在这里 |
+| `sf3/sf6-fe-tos.pglstatp-toutiao.com/obj/ad-pattern/...` | 穿山甲渲染器 | 507 KB × 2，纯浪费 |
+| `toblog.ctobsnssdk.com` | 字节 AppLog / 设备注册 | `aid=164362`、`host_appid=5104488`，非广告 |
+| `mmbiz.qpic.cn` | 公众号文章配图（公告页） | 非广告 |
 
-其中最关键的是 `api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads`——这是**唯一的广告请求接口**，请求体是加密 protobuf。既然无法伪造返回体，就直接在连接层掐断：SDK 拿不到广告，原生地走"无广告填充（no fill）"分支，不会弹错误框。
-
-> 完整抓包逐条分析见 [docs/har-analysis.md](docs/har-analysis.md)。
-
----
-
-## 三、常见问题
-
-<details>
-<summary><b>装了插件还有广告？</b></summary>
-
-按可能性排序：
-
-1. **没重启 App**。穿山甲会把广告素材缓存在本地沙盒，最长可达数小时。请从后台彻底划掉 App 再打开。
-2. **那不是 SDK 广告，而是 App 内置的「推广/公告」**。皮皮喵极速版的部分推广位是服务器下发的加密数据包（`datas/app_ios_store_free`），不走网络请求广告，因此任何基于抓包的规则都拦不到。这类内容只能靠 App 更新或改数据包解决。
-3. **广告由别的联盟提供**（如优量汇、快手）。本插件只覆盖抓包里实际出现的链路；如果你抓到了新的广告域名，欢迎提 Issue 并附上 HAR。
-</details>
-
-<details>
-<summary><b>会影响其他 App 吗？</b></summary>
-
-会，而且是**全局**的：Loon 的 `[Rule]` 不区分 App。穿山甲是国内最大的广告 SDK 之一，微信、抖音、各类工具 App 里的穿山甲广告也会一并消失——对绝大多数用户来说是好事。
-
-如果你只想拦截皮皮喵、不想影响其他 App，可以把插件里除「试玩广告 Rewrite」外的规则删掉，改用 `[URL Rewrite]` 的 `reject-200` 精准拦截（需要 MITM，且只对该 App 发起的请求生效……但要说明：Loon 的 Rewrite 同样是全局 URL 匹配，并非按 App 隔离，只是匹配规则更窄）。
-</details>
-
-<details>
-<summary><b>会不会影响皮皮喵的正常功能？</b></summary>
-
-不会。书源、书架、阅读、下载走的是 `mwfimsvfast9.cc` 之类的书源域名和数据镜像（`dev.azure.com` / `gitlab.com`），与广告域名完全无关。插件没有改动任何业务接口的返回内容。
-</details>
-
-<details>
-<summary><b>要不要开「全局代理」？</b></summary>
-
-不需要。规则模式下（分流）即可正常工作，`REJECT` 是本机行为，流量不会出网。
-</details>
-
-<details>
-<summary><b>为什么没有 JS 脚本？</b></summary>
-
-因为**没有可改的东西**：`get_ads` 的请求体和响应体都是穿山甲私有加密 protobuf，伪造返回值不可行；能做的只有"让它拉不到"。少一个脚本 = 少一个失败点（脚本下载失败、超时、运行时版本不兼容）。
-</details>
+插件按上面的顺序分三组拦截：AdMob（主）→ 优量汇（兜底）→ 穿山甲（备用）。
 
 ---
 
-## 四、仓库结构
+## 三、为什么第一版完全没生效（复盘）
+
+第一版只写了穿山甲相关的域名，实测无效。现在有数据，原因有三条：
+
+1. **真正的广告来自 AdMob**。第一次抓包只抓了冷启动前 3 秒，AdMob 那条 `/mads/gma` 还没发出来，所以完全没被看见。
+2. **穿山甲的 `get_ads` 本来就是失败的**——返回 `40006 广告位ID不合法`。也就是说 App 里填的穿山甲广告位 ID 是无效的，它压根没在投广告。拦一个本来就不投广告的 SDK，当然没效果。
+3. **域名写漏了一个字符**。穿山甲有两个域名：
+
+   ```
+   api-access.pangolin-sdk-toutiao.com     ← 第一版拦的
+   api-access.pangolin-sdk-toutiao1.com    ← 实际在用的（多一个 1）
+   ```
+
+   `DOMAIN-SUFFIX,pangolin-sdk-toutiao.com` 匹配不到 `...toutiao1.com`，因为它不是以 `.pangolin-sdk-toutiao.com` 结尾。
+
+这一版已全部修正。
+
+---
+
+## 四、常见问题
+
+<details>
+<summary><b>装完还是看到开屏广告？</b></summary>
+
+1. **确认冷启动**：从后台划掉 App 再打开，不是切回前台。
+2. **确认没有别的去广告插件打架**：你之前提到开过其他插件。两个插件同时改同一批域名时，先禁用其他插件单独测这一版。
+3. **确认 AdMob 真的被拦了**：Loon → 仪表盘 → 请求记录，搜 `doubleclick`，应该看到大量 `REJECT`。
+4. 如果仍然出现，说明还有第四条链路没抓到。请抓一次**广告出现时**的 HAR（从点图标到广告消失），带给我。
+</details>
+
+<details>
+<summary><b>为什么广告来源是 AdMob，一个国产 App 用 Google？</b></summary>
+
+App 是 `com.gentle.ppcat-free`（免费版），接 AdMob 在国内很常见——广告主出价高、填充率依赖代理网络。你抓包时出口 IP 在香港（`ip-api` 返回 `Kirino LLC`），所以 AdMob 能正常投放。
+
+反过来，如果你**不开代理**直连，AdMob 大概率也拉不到广告——但这只是一种现象，不是可靠的"去广告方法"。
+</details>
+
+<details>
+<summary><b>会不会影响 App 正常功能？</b></summary>
+
+不会。插件只拦广告域名，书源、书架、阅读、下载走的是 Azure/GitLab 镜像和书源站，与这些域名无关。
+
+唯一需要留意的是 `doubleclick.net` 这类域名是**全局**生效的——如果你手机里还有别的 App 用 AdMob，它们的广告也会一起消失。这通常是好事。
+</details>
+
+<details>
+<summary><b>要开 MITM / 装证书吗？</b></summary>
+
+**不需要。** 这一版全是 `[Rule]` 域名拦截，走的是连接层，不解密任何流量。上一版有两条 `[URL Rewrite]`，这版已经删掉了。
+</details>
+
+<details>
+<summary><b>拦截后开屏会不会卡住？</b></summary>
+
+AdMob SDK 在连接被拒绝时会走 `didFailToReceiveAd` 回调，App 随即跳过开屏。理论上不会卡；如果发现启动变慢或白屏时间变长，删掉 `sdk.e.qq.com` 那条再试（它是聚合兜底，有时会等超时）。
+</details>
+
+---
+
+## 五、仓库结构
 
 ```
 .
 ├── ppm-ads.plugin          # Loon 插件本体（导入这个，无需其他文件）
 ├── rules/
-│   └── pangle-ads.list     # 纯规则版，可当规则订阅塞进主配置
+│   └── ppm-ads.list        # 纯规则版，可当规则订阅塞进主配置
 ├── scripts/
-│   └── geo-cn.js           # 可选：ip-api 归属地伪装（默认不启用，见分析文档 4.2）
+│   └── geo-cn.js           # 可选：ip-api 归属地伪装（默认不启用）
 ├── docs/
-│   └── har-analysis.md     # 抓包逐条分析 + 结论 + 已知局限
+│   └── har-analysis.md     # 两轮抓包逐条分析
 ├── LICENSE
 └── README.md
 ```
 
 ---
 
-## 五、参考
+## 六、参考
 
 - [Loon 官方文档 · 插件](https://nsloon.app/docs/Plugin/)
-- [Loon 官方文档 · 复写（Rewrite）](https://nsloon.app/docs/Rewrite/)
-- [Loon 插件示例](https://github.com/Loon0x00/LoonExampleConfig)
+- [Loon 官方文档 · 规则](https://nsloon.app/docs/Rule/)
+- [Google AdMob 移动广告 SDK 请求路径说明](https://developers.google.com/admob/ios/quick-start)
 
-## 六、免责声明
+## 七、免责声明
 
 本项目仅用于**个人学习与网络流量分析**，不对 App 做任何破解、去壳或修改。请支持开发者，若觉得好用请购买正版 / 会员。因使用本插件产生的任何后果由使用者自行承担。
 

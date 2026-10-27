@@ -1,0 +1,25 @@
+# 皮皮喵Lite · 开屏广告域名规则集（纯 Rule 版本）
+#
+# 用途：不想装插件、只想把规则并进自己主配置 / 规则订阅的用户。
+# 用法：Loon → 配置 → 规则 → 添加规则订阅 → 粘贴本文件 raw 地址 → 订阅策略选 REJECT。
+#
+# 与 ppm-ads.plugin 内容等价，只是没有注释掉的「可选」段。
+
+# ---------- 1. Google AdMob（开屏广告真正来源） ----------
+DOMAIN-SUFFIX,doubleclick-cn.net,REJECT
+DOMAIN-SUFFIX,doubleclick.net,REJECT
+DOMAIN-SUFFIX,googlesyndication-cn.com,REJECT
+DOMAIN-SUFFIX,googlesyndication.com,REJECT
+DOMAIN-SUFFIX,googleadservices-cn.com,REJECT
+DOMAIN-SUFFIX,googleadservices.com,REJECT
+DOMAIN-SUFFIX,admob.com,REJECT
+
+# ---------- 2. 腾讯优量汇 / GDT（AdMob 聚合兜底） ----------
+DOMAIN,sdk.e.qq.com,REJECT
+DOMAIN-SUFFIX,gdt.qq.com,REJECT
+
+# ---------- 3. 穿山甲 Pangle（备用链路，当前广告位 ID 无效） ----------
+DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
+DOMAIN-SUFFIX,pangolin-sdk-toutiao1.com,REJECT
+DOMAIN-SUFFIX,pangle.io,REJECT
+DOMAIN-SUFFIX,pglstatp-toutiao.com,REJECT

@@ -1,181 +1,223 @@
-# 抓包分析报告
+# 抓包分析报告（两轮）
 
-- 样本：`106_1793134263859.har`（iOS，Loon 导出，35 条请求，约 3 秒冷启动片段）
-- 设备：iPhone，iOS 18.7
-- App：皮皮喵极速版（`app_ver=0.7.28`，`version_code=0.59`）
-- 采集时间：2026-10-28 04:51:10 (±08:00)
-
----
-
-## 1. 请求全貌
-
-35 条请求里，**18 条是 App 自己发出的 DoH 查询**（`doh.pub` + `dns.alidns.com` 各查一遍，用于域名解析），实际业务请求只有 17 条：
-
-| # | 域名 | 路径 | 状态 | 归类 |
-| --- | --- | --- | --- | --- |
-| 1 | `dev.azure.com` | `/_apis/git/.../items?path=/datas/users_ios_free` | 200 (6798 B) | 配置数据 |
-| 2 | `dev.azure.com` | `...?path=/datas/app_ios_store_free` | 200 (15360 B) | 配置数据 |
-| 3 | `gitlab.com` | `/ghostgzt/ppcat/-/raw/master/version_ios` | 200 | 版本检查 |
-| 4 | `github.com` | `/ghostgzt/ppcat/blob/master/version_ios` | 200 (HTML) | 版本检查（备用） |
-| 5 | `gitcode.net` | `/mio/ppcat/-/raw/master/datas/*` ×2 | **418** | 已失效镜像 |
-| 6 | `jihulab.com` | `/ghostgzt/ppcat/-/raw/main/datas/*` ×2 | **401** | 已失效镜像 |
-| 7 | `mwfimsvfast9.cc` | `/static/upload3/book/id/*/cover_1.jpg` ×4 | **0（连接失败）** | 书源封面 |
-| 8 | `mssdk.volces.com` | `/ri/report_otob?...` | 200 | **字节 SDK 埋点** |
-| 9 | `tnc3-alisc1.zijieapi.com` | `/get_domains/v4/?aid=1371` | 200 | **字节 TTNet HTTP-DNS** |
-| 10 | `lf-cdn-tos.bytescm.com` | `/obj/static/ad/play-comp/.../package.ugen.json` | 200 | **穿山甲试玩广告 SDK** |
-| 11 | `ip-api.com` | `/json/` | 200 | 归属地查询 |
-| 12 | `mmbiz.qpic.cn` | `/mmbiz_jpg/...` | 304 | 公众号文章配图（公告/推广页） |
+| | 第一轮 | 第二轮 |
+| --- | --- | --- |
+| 文件 | `106_1793134263859.har` | `Stream-2026-10-28 054720.har` |
+| 工具 | Loon | Stream 1.0.6 |
+| 请求数 | 35 | 37 |
+| 覆盖时长 | ~3 s（冷启动片段） | ~35 s |
+| 是否含广告请求 | **否** | **是** |
+| 结论 | 误判为穿山甲 | **真凶是 Google AdMob** |
 
 ---
 
-## 2. 关键证据
+## 0. 结论先行
 
-### 2.1 广告 SDK = 字节「穿山甲」v5.5.0.7
-
-`lf-cdn-tos.bytescm.com` 的请求参数直接暴露了 SDK 版本和 AppID：
+开屏广告链路：
 
 ```
-/obj/static/ad/play-comp/playable-component-sdk/package.ugen.json
-    ?aid=5000546&version_code=5.5.0.7&device_platform=iphone
+App 冷启动
+  └─ Google Mobile Ads SDK (afma-sdk-i-v9.14.0)
+       ├─ GET  googleads.g.doubleclick-cn.net/getconfig/pubsetting     ← 拉配置
+       ├─ GET  googleads.g.doubleclick-cn.net/mads/gma                ← 拉广告（35171 B 响应）
+       ├─ GET  .../mads/static/mad/sdk/native/sdk-core-loader-inline.html  ← 广告 WebView 壳
+       ├─ GET  pagead2.googleadservices-cn.com/pagead/adview          ← 展示
+       ├─ GET  pagead2.googlesyndication-cn.com/pcs/activeview        ← 曝光打点
+       ├─ GET  csi.gstatic.com/csi  ×7                                ← 性能打点
+       └─ 聚合兜底：POST sdk.e.qq.com/mediation（腾讯优量汇，本次未填充）
 ```
 
-- `aid=5000546` → 该 App 在穿山甲平台的 **AppID**
-- `version_code=5.5.0.7` → 穿山甲 iOS SDK 版本
-- `playable-component-sdk` → 试玩广告组件（只有接了激励视频/试玩广告才会拉）
+穿山甲（Pangle）确实接入了，但 `get_ads` 返回业务错误码，**没有在投广告**。
 
-另一路 `tnc3-alisc1.zijieapi.com/get_domains/v4/?aid=1371&version_code=5507` 里的 `5507` 也是 5.5.07 的另一种写法，`aid=1371` 是字节 TTNet 侧的应用编号。
+---
 
-### 2.2 SDK 埋点内容（已解密）
+## 1. 第一轮为什么误判
 
-`mssdk.volces.com/ri/report_otob` 是一个 2.8 KB 的 protobuf POST，参数表明它是 SDK 遥测：
+第一轮 HAR 只有 35 条请求、约 3 秒，从头到尾**没有任何一条广告拉取请求**。当时能看到的只有：
 
-```
-sdk_ver=v07.01.01-ml-iOS  app_ver=0.7.28  sdkid=1371
-client_type=business      region_type=ml  mode=2
-user-agent: ByteDance-MSSDK
-```
+- `lf-cdn-tos.bytescm.com/obj/static/ad/play-comp/playable-component-sdk/package.ugen.json?aid=5000546&version_code=5.5.0.7`
+  → 据此认定 SDK 是「穿山甲 v5.5.0.7、AppID 5000546」
+- `mssdk.volces.com/ri/report_otob`（字节埋点）
+- `tnc3-alisc1.zijieapi.com/get_domains/v4/`（字节 TTNet HTTP-DNS）
 
-请求体内容为 protobuf，不可读；但从 `sdk_aid: 3019`、`x-tt-request-tag` 可以确认是字节标准的数据上报通道。拦掉它对功能无影响。
+这些证据都是真的，但**只能证明"接了穿山甲"，不能证明"广告来自穿山甲"**。这是个典型的推理跳跃：把「存在」当成了「因果」。
 
-### 2.3 TTNet 下发了广告服务器 IP（已解密）
-
-`tnc3-alisc1.zijieapi.com/get_domains/v4/` 返回：
+第二轮数据把这个跳跃证伪了：穿山甲 `get_ads` 返回
 
 ```json
-{"data":{
-  "chromium_open":1,
-  "ttnet_enable_cronet_request_report":1,
-  "ttnet_url_dispatcher_enabled":1,
-  "ttnet_http_dns_addr":{
-    "tnc0-alisc1.zijieapi.com":"47.106.88.76,47.106.84.116,120.78.234.27,120.78.189.22",
-    "tnc0-bjlgy.zijieapi.com":"8.133.123.137,8.133.123.138,8.133.123.139,8.133.123.140",
-    "tnc0-aliec2.zijieapi.com":"8.133.123.137,8.133.123.138,8.133.123.139,8.133.123.140"
-  },
-  "send_tnc_host_arrays":["tnc0-alisc1.zijieapi.com","tnc0-aliec2.zijieapi.com"]
-},"message":"success","summary":"15b398cc6375696f6fe39cbfaf10b630"}
+{"request_id":"755925DF-FDE1-4CF4-9CE6-CBB66C38B6F6","status_code":40006,"reason":0,"desc":"广告位ID不合法"}
 ```
 
-这是字节的「HTTP DNS 下发」机制：SDK 拿到这组域名后可以**完全绕过系统 DNS**，直接用 IP 连接。所以只在 DNS 层做拦截是无效的，必须在**域名规则层** REJECT（Loon 依据 TLS SNI / Host 匹配，与解析方式无关）——这也是本插件把 `tnc*.zijieapi.com` 一并 REJECT 的原因。
+`40006 = 广告位ID不合法`，即 App 里填的穿山甲 slot ID 无效，SDK 拿不到任何广告。
 
-### 2.4 配置数据是加密的
-
-App 从 4 个镜像拉两份数据文件（`dev.azure.com` 是当前唯一可用的）：
-
-| 文件 | 大小 | 熵 | 首字节 |
-| --- | --- | --- | --- |
-| `datas/users_ios_free` | 6798 B | 7.960 | `75 97 60 15 75 86 be be…` |
-| `datas/app_ios_store_free` | 15360 B | 7.981 | `57 05 df bf 41 5c ed f2…` |
-
-熵接近 8.0（完全随机），且长度不是 16 的整数倍（6798 = 16×424 + 14），说明是**流式加密**（AES-CTR / ChaCha20 之类）而非分块加密。仓库里同时存在不带 `_free` 后缀的版本：
+另外还发现第一轮的域名规则本身有 bug：穿山甲有两个域名，
 
 ```
-datas/users_ios        8347 B   ← 存在
-datas/app_ios_store   13375 B   ← 存在
-datas/users_ios_vip   404       ← 不存在
-datas/app_ios_store_vip 404     ← 不存在
+api-access.pangolin-sdk-toutiao.com
+api-access.pangolin-sdk-toutiao1.com      ← 多一个「1」
 ```
 
-即只有「极速版（free）」和「正式版」两套数据，没有 VIP 变体。**结论：广告位配置写在 App 二进制里，不是服务器下发的**，所以改数据包这条路走不通，也解释了为什么只需要拦 SDK。
-
-`version_ios` 则是明文（外层是 `data:app/ppcat;version,` + base64 的 data URI）：
-
-```json
-{"version":"0.2.6","versionCode":200111,"forceVersion":191201,
- "updateUrl":"https://www.lanzoux.com/b932237","updateContent":""}
-```
+`DOMAIN-SUFFIX,pangolin-sdk-toutiao.com` 无法匹配 `...toutiao1.com`（不是以 `.pangolin-sdk-toutiao.com` 结尾），所以连这块也是漏的。
 
 ---
 
-## 3. 结论：能拦什么、不能拦什么
+## 2. 第二轮的完整证据
 
-**能拦（本插件已覆盖）**
+### 2.1 App 身份
 
-1. 穿山甲 `get_ads` 广告拉取 → 开屏 / 插屏 / 信息流 / 激励视频全部无填充，SDK 原生走 `no fill` 分支，不弹错误框。
-2. 广告素材 CDN（`*.pangle.io`、`*.pglstatp-toutiao.com`）→ 即使有历史缓存也无法重新下载。
-3. `mssdk.volces.com` 埋点 → 省流量、省电。
-4. `tnc*.zijieapi.com` HTTP-DNS → 防止 SDK 用 IP 直连绕过域名拦截。
-5. 试玩广告（Playable）组件 → URL Rewrite 返回空 200。
+从 `toblog.ctobsnssdk.com` 的查询参数里直接读出：
 
-**拦不了（任何基于网络抓包的方案都拦不了）**
+```
+app_name    = 皮皮喵Lite
+channel     = App Store
+app_version = 0.7.28
+version_code= 0.7.28
+os          = iOS
+os_version  = 27.0
+device_model= iPhone14,3
+aid         = 164362
+host_appid  = 5104488
+device_id   = 4215986752859961
+```
 
-- App 内置的静态推广位 / 公告：内容来自加密数据包，与网络请求无关。
-- 公告页里的公众号文章（`mp.weixin.qq.com` + `mmbiz.qpic.cn`）：这是正常的网页浏览，封了会影响其他场景。
-- App 若未来接入第二家广告联盟（优量汇 / 快手 / 百度），需要补充对应域名。
+AdMob 侧则是：
+
+```
+GET /getconfig/pubsetting?app_name=com.gentle.ppcat-free
+                        &vnm=0.7.28
+                        &client=ca-app-pub-5440663071705011
+                        &admob_appcc=7725269900
+```
+
+- Bundle ID：`com.gentle.ppcat-free`（免费版）
+- AdMob 发布商 ID：`ca-app-pub-5440663071705011`
+- AdMob App ID：`7725269900`
+
+### 2.2 广告格式：视频插屏
+
+`csi.gstatic.com/csi` 里有完整的广告元数据：
+
+```
+j_e_ad_format = js_video_ctd
+j_e_layout    = video_ctd/interstitial_campari_v7
+j_e_demand    = aci
+j_e_cmp_id    = 24126736259
+j_e_wi = 428   j_e_he = 846     ← 屏幕尺寸
+j_e_placement = 1
+```
+
+`Campari` 是 Google 应用安装广告的项目代号，`video_ctd` 即视频点击下载素材。这就是开屏看到的那条视频广告。
+
+### 2.3 聚合（mediation）确实尝试过优量汇
+
+```
+GET googleads.g.doubleclick-cn.net/pagead/interaction/?label=admob_mediation_request_fill_result
+                                                      &mediation_fill_status=-3.0.465.-3
+```
+
+配合 `sdk.e.qq.com` 的 `/mediation?version=1`、`/launch`（响应 2564 B）、`/event` ×3、`/msg`，
+可以确认：AdMob 在自家没填满时会去问腾讯优量汇要广告。本次 `-3` 表示未填充，所以最终展示的是 AdMob 自营素材。
+
+**这意味着只封 AdMob 可能不够**——封掉后 SDK 可能更积极地走聚合。所以插件把 `sdk.e.qq.com` 一起拦了。
+
+### 2.4 穿山甲仍在偷偷下载，但没广告
+
+| 请求 | 说明 |
+| --- | --- |
+| `POST api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads/` | 返回 40006 广告位ID不合法 |
+| `POST api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/settings/` | 返回 **21154 B** 加密配置 |
+| `POST api-access.pangolin-sdk-toutiao1.com/.../stats/batch/` ×4 | 埋点，单次请求体 2.4–3.9 KB |
+| `GET sf3-fe-tos.pglstatp-toutiao.com/obj/ad-pattern/build/renderer/1.0.0.2512/fallback.js` ×2 | **507 KB × 2 = 1 MB** 渲染器 |
+| `GET lf-cdn-tos.bytescm.com/obj/static/ad/play-comp/.../index-H7RW3GBV.js` | 试玩广告组件 |
+
+37 条请求的响应体总计约 **1.9 MB**，其中穿山甲的渲染器就占了 1 MB 以上——纯浪费。
+
+### 2.5 非广告流量（不要拦）
+
+| 域名 | 用途 |
+| --- | --- |
+| `toblog.ctobsnssdk.com` | 字节 AppLog / 设备注册，3 次 |
+| `mmbiz.qpic.cn` + `mp.weixin.qq.com` | 公告页里的公众号文章配图 |
+
+这两类拦掉会省一点流量，但和广告无关，插件里放在「默认注释」的可选段。
 
 ---
 
-## 4. 可选调整
+## 3. 插件的设计依据
 
-### 4.1 启动加速（未包含在插件内）
+| 目标 | 手段 | 理由 |
+| --- | --- | --- |
+| 掐死开屏广告 | `REJECT` 整个 AdMob 域名族（含 `-cn` 镜像域） | `/mads/gma` 是唯一广告入口，封域名即可，无需改包 |
+| 防止聚合兜底补位 | `REJECT` `sdk.e.qq.com`、`gdt.qq.com` | AdMob 失败后会转向优量汇 |
+| 顺手止损 | `REJECT` 穿山甲全套（含 `toutiao1`） | 当前不投广告，但每次启动白下 1 MB |
+| 不误伤 | 不使用 `googleusercontent.com`、`gstatic.com` 整域 | 这两个域名承载大量正常资源 |
 
-App 会**并发**请求 5 个镜像，其中 `gitcode.net`（418）和 `jihulab.com`（401）早已失效，白白多等 ~0.6 秒。只想加速、不想拦截时，可单独加这两条（注意：`gitcode.net` 是全局生效的）：
+**为什么不用 `[URL Rewrite]`**：域名 `REJECT` 在连接层就把流量掐了，不需要 MITM、不需要装证书、不依赖脚本下载。少一个环节就少一处会坏的地方。
 
-```
-DOMAIN,gitcode.net,REJECT
-DOMAIN,jihulab.com,REJECT
-```
-
-### 4.2 归属地伪装（实验性，不建议默认开启）
-
-App 启动时会请求 `http://ip-api.com/json/`，本次抓包返回的是**香港**（`"country":"Hong Kong","isp":"Kirino LLC"`）。用途未知，可能是「海外用户提示」或「广告地域策略」。如果你想验证它是否影响广告行为，可加：
-
-```
-[Script]
-http-response ^https?:\/\/ip-api\.com\/json script-path=https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/scripts/geo-cn.js,requires-body=true,tag=ip-api-CN
-
-[MITM]
-hostname = ip-api.com
-```
-
-并在 `scripts/geo-cn.js` 里返回固定的中国大陆结果。**风险未知，默认不开。**
-
-### 4.3 换用正式版数据包（未验证）
-
-把请求路径中的 `_free` 换成无后缀版本：
-
-```
-^https?:\/\/dev\.azure\.com\/.*\/items\?path=\/datas\/users_ios_free$  header https://dev.azure.com/xo/2cc4c8ac-7420-4bd5-a166-7d1e498c1cda/_apis/git/repositories/3d037897-2ba8-4c1d-9b07-8238d71fdc64/items?path=/datas/users_ios
-```
-
-理论上极速版会读到正式版的书源配置。但两份数据用同一套加密（App 内置密钥通常与版本绑定），**可能直接解析失败导致书架/书城空白**。仅作记录，不要写进正式插件。
+**为什么不用脚本改返回体**：AdMob 的 `/mads/gma` 响应是加密 protobuf（本次 35171 B，首字节随机），无法伪造合法空响应。`get_ads` 同样是加密的。能做的只有"让它拿不到"。
 
 ---
 
-## 5. 复用本报告
+## 4. 已知局限与风险
 
-HAR 里的全部响应体都可由下列脚本还原（HAR 中 `encoding: "base64"` 需要先解码）：
+1. **AdMob 是全局域名**。插件拦掉后，你手机里其他用 AdMob 的 App 广告也会一起消失。这是 Loon `[Rule]` 的机制决定的，不按 App 隔离。
+2. **可能有第四条链路没抓到**。本次抓包 35 秒，如果 App 还有"激励视频""信息流"广告走别的联盟（例如快手、Mintegral、Unity Ads），这里没有体现。
+3. **开屏是否真的被跳过，无法离线验证**。逻辑上 `didFailToReceiveAd` 会让 App 直接跳过，但不排除 App 写死 5 秒倒计时的可能。如果拦截后发现启动变慢，优先怀疑 `sdk.e.qq.com` 的超时等待。
+4. **App 更新可能换广告位**。若某天出现新的广告域名，需要重抓。
+
+---
+
+## 5. 复现方法
+
+HAR 里 `encoding: "base64"` 的响应体需要先解码，部分还套了 gzip：
 
 ```python
-import json, base64, zlib, gzip
+import json, base64, gzip
 
-har = json.load(open("106_1793134263859.har", encoding="utf-8"))
+har = json.load(open("Stream-2026-10-28 054720.har", encoding="utf-8"))
 for e in har["log"]["entries"]:
     c = e["response"]["content"]
     raw = base64.b64decode(c["text"]) if c.get("encoding") == "base64" else c["text"].encode()
-    # 部分响应还套了一层 gzip
     try:
         raw = gzip.decompress(raw)
     except Exception:
         pass
     print(e["request"]["url"], len(raw))
+```
+
+注意：HAR 的 `entries` 顺序是**倒序**的（第一条 `startedDateTime` 最晚）。
+
+---
+
+## 6. 关键响应原文
+
+**穿山甲 get_ads（证明它没在投广告）**
+
+```json
+{"request_id":"755925DF-FDE1-4CF4-9CE6-CBB66C38B6F6",
+ "status_code":40006,"reason":0,"desc":"广告位ID不合法"}
+```
+
+**AdMob 聚合回执（证明尝试过优量汇）**
+
+```
+GET /pagead/interaction/?label=admob_mediation_request_fill_result
+    &mediation_fill_status=-3.0.465.-3
+    &smc_index=0
+```
+
+**AdMob csi 元数据（证明是视频插屏）**
+
+```
+j_e_ad_format=js_video_ctd
+j_e_layout=video_ctd/interstitial_campari_v7
+j_e_cmp_id=24126736259
+```
+
+**穿山甲 renderer manifest**
+
+```json
+{"name":"ad-pattern-renderer","version":"1.0.2512",
+ "main":"https://sf3-fe-tos.pglstatp-toutiao.com/obj/ad-pattern/build/renderer/1.0.0.2512/index.html",
+ "resources":[{"url":".../index.js","md5":"47c2294b730ce3a15538251f2cfbe..."}]}
 ```
