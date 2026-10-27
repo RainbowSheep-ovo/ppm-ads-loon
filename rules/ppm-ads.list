@@ -19,7 +19,7 @@ DOMAIN,sdk.e.qq.com,REJECT
 DOMAIN-SUFFIX,gdt.qq.com,REJECT
 
 # ---------- 3. 穿山甲 Pangle（备用链路，当前广告位 ID 无效） ----------
-DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
-DOMAIN-SUFFIX,pangolin-sdk-toutiao1.com,REJECT
+# 域名会轮换（toutiao.com / toutiao1.com / toutiao-b.com），用 KEYWORD 一网打尽
+DOMAIN-KEYWORD,pangolin-sdk-toutiao,REJECT
 DOMAIN-SUFFIX,pangle.io,REJECT
 DOMAIN-SUFFIX,pglstatp-toutiao.com,REJECT

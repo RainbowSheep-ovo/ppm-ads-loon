@@ -5,6 +5,25 @@
 #!date=2026-10-28
 #!tag=去广告,皮皮喵
 
+# ------------------------------------------------------------------
+#  ⚠ 必读：本插件有一个已知副作用，第三次抓包已确认
+#
+#  App 检测到「开屏广告拉不到」时，会弹出一个原生「故障」弹窗：
+#      故障
+#      无法正常联网，导致广告无法显示！
+#      请升级最新版应用，联网并关闭相关广告屏蔽软件，然后重启应用！
+#      前往设置-更新地址，可下载最新版，如想去广告可以捐赠喵喵特权！
+#      确定(9s)
+#
+#  这个弹窗是写死在 App 二进制里的「反广告拦截」措施，不经过任何网络
+#  请求，因此 Loon 无法拦截或修改。实测证据：即使穿山甲自己返回
+#  status_code 40006「广告位ID不合法」（即开发商自己没配好广告位），
+#  只要开屏最终没有广告可放，这个弹窗照样会弹。
+#
+#  换句话说：本插件 = 用 9 秒弹窗换掉 5 秒广告。
+#  如果你觉得不划算，直接关掉本插件即可恢复「看广告但无弹窗」。
+# ------------------------------------------------------------------
+
 [Rule]
 # ============================================================
 #  1. Google AdMob —— 开屏广告的真正来源
@@ -55,11 +74,14 @@ DOMAIN-SUFFIX,gdt.qq.com,REJECT
 #     但它每次启动仍会下载 507KB×2 的渲染器和 21KB 的 settings，
 #     所以照样拦掉，省流量也防它以后修好。
 #
-#     ⚠ 注意有 toutiao1.com（多一个 1）和 toutiao.com 两个域名，
-#       只写后者的 suffix 是匹配不到前者的。
+#     ⚠ 这个域名会轮换，三次抓包见到三种：
+#         api-access.pangolin-sdk-toutiao.com
+#         api-access.pangolin-sdk-toutiao1.com
+#         api-access.pangolin-sdk-toutiao-b.com
+#       用 DOMAIN-SUFFIX 只能逐个补，永远追不上；改用 DOMAIN-KEYWORD
+#       一次覆盖全部（含以后可能出现的 -c / -d / 2 / 3…）。
 # ============================================================
-DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
-DOMAIN-SUFFIX,pangolin-sdk-toutiao1.com,REJECT
+DOMAIN-KEYWORD,pangolin-sdk-toutiao,REJECT
 DOMAIN-SUFFIX,pangle.io,REJECT
 DOMAIN-SUFFIX,pglstatp-toutiao.com,REJECT
 

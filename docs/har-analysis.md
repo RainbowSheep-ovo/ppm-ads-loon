@@ -1,13 +1,15 @@
-# 抓包分析报告（两轮）
+# 抓包分析报告（三轮）
 
-| | 第一轮 | 第二轮 |
-| --- | --- | --- |
-| 文件 | `106_1793134263859.har` | `Stream-2026-10-28 054720.har` |
-| 工具 | Loon | Stream 1.0.6 |
-| 请求数 | 35 | 37 |
-| 覆盖时长 | ~3 s（冷启动片段） | ~35 s |
-| 是否含广告请求 | **否** | **是** |
-| 结论 | 误判为穿山甲 | **真凶是 Google AdMob** |
+| | 第一轮 | 第二轮 | 第三轮 |
+| --- | --- | --- | --- |
+| 文件 | `106_1793134263859.har` | `Stream-2026-10-28 054720.har` | `112_1793138547466.har` |
+| 工具 | Loon | Stream 1.0.6 | Loon |
+| 请求数 | 35 | 37 | 56 |
+| 覆盖时长 | ~3 s（冷启动片段） | ~35 s | 冷启动 + 弹窗 |
+| 是否含广告请求 | **否** | **是** | 否（已被拦截） |
+| 关键发现 | 误判为穿山甲 | **真凶是 Google AdMob** | 反拦截弹窗 + 域名轮换 |
+
+> 第三轮的专项分析（「故障」弹窗）见 [anti-adblock-dialog.md](anti-adblock-dialog.md)。
 
 ---
 
@@ -221,3 +223,44 @@ j_e_cmp_id=24126736259
  "main":"https://sf3-fe-tos.pglstatp-toutiao.com/obj/ad-pattern/build/renderer/1.0.0.2512/index.html",
  "resources":[{"url":".../index.js","md5":"47c2294b730ce3a15538251f2cfbe..."}]}
 ```
+
+---
+
+## 7. 第三轮补充：拦截生效之后
+
+`112_1793138547466.har`，56 条请求，是**启用插件后**的冷启动。
+
+### 7.1 AdMob 请求完全消失
+
+整份 HAR 里 `doubleclick` / `googleads` / `pagead2` 一条都没有，说明规则生效，请求在连接层就被掐掉了（Loon 的 HAR 导出不记录被 REJECT 的连接）。
+
+### 7.2 穿山甲换了个域名：`-b`
+
+```json
+POST https://api-access.pangolin-sdk-toutiao-b.com/api/ad/union/sdk/get_ads/
+     ?aid=5000546&version_code=5.5.0.7&device_platform=iphone
+→ 200 {"request_id":"8734A64A-...","status_code":40006,
+        "reason":0,"desc":"广告位ID不合法"}
+```
+
+三次抓包见到三个域名：`.com`、`1.com`、`-b.com`。这确认了域名是**按次轮换**的，
+`DOMAIN-SUFFIX` 永远追不上，必须用 `DOMAIN-KEYWORD,pangolin-sdk-toutiao`。
+
+### 7.3 App 自己也没广告可用
+
+注意这条：`get_ads` 返回的 `40006` 是**穿山甲服务器**给的业务错误，不是我们拦的。
+即使插件不拦这个域名，App 也拿不到穿山甲的广告。
+
+**而「故障」弹窗照样出现了。** 这就证明弹窗的判定标准是「开屏没广告」，
+而不是「检测到广告屏蔽软件」——详见 [anti-adblock-dialog.md](anti-adblock-dialog.md)。
+
+### 7.4 新增的非广告流量
+
+| 域名 | 说明 |
+| --- | --- |
+| `uop.umeng.com` ×3（status 0） | 友盟推送注册，一直失败重试 |
+| `alogs.umeng.com/app_logs` | 友盟统计，protobuf |
+| `toblog.ctobsnssdk.com/service/2/device_register_only/` | 字节设备注册 |
+
+这些都不是广告，插件未拦截。
+

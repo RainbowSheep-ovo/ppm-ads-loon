@@ -1,11 +1,36 @@
 # 皮皮喵Lite / 皮皮喵极速版 · Loon 去开屏广告
 
-> 基于两轮真机抓包定位后编写的 Loon 插件，目标是**只去掉开屏广告**，不动其他任何东西。
-
-**核心结论**：这个 App 的开屏广告来自 **Google AdMob**，不是穿山甲。第一版插件只拦了穿山甲（`pangle.io` / `pangolin-sdk-toutiao.com`），所以完全没生效——详见 [为什么第一版没生效](#三为什么第一版完全没生效复盘)。
+> 基于三轮真机抓包定位后编写的 Loon 插件，目标是**只去掉开屏广告**，不动其他任何东西。
 
 - **纯域名规则**：不需要 MITM、不需要证书、不依赖远程脚本，装完即生效。
 - **只打广告**：不碰书源、书架、阅读、下载相关的任何域名。
+
+---
+
+## ⚠️ 先看这个：拦截会触发 App 的「故障」弹窗
+
+装上后冷启动会弹一个原生弹窗，带 **9 秒倒计时**：
+
+```
+故障
+无法正常联网，导致广告无法显示！
+请升级最新版应用，联网并关闭相关广告屏蔽软件，然后重启应用！
+前往设置-更新地址，可下载最新版，如想去广告可以捐赠喵喵特权！
+确定(9s)
+```
+
+**这是开发商专门做的反广告拦截惩罚，写死在 App 里，Loon 去不掉**（详见 [docs/anti-adblock-dialog.md](docs/anti-adblock-dialog.md)）。
+
+关键证据：第三次抓包里，穿山甲**自己的服务器**返回 `status_code 40006「广告位ID不合法」`——也就是说哪怕你不装插件、App 自己也拿不到广告，这个弹窗照样会弹。它的判定是「开屏没广告」，不是「检测到你装了广告插件」。
+
+于是有了这个尴尬的账：
+
+| 方案 | 开屏广告 | 「故障」弹窗 | 净体验 |
+| --- | --- | --- | --- |
+| 启用插件 | 无 | 有，9 秒 | 省 5 秒，多付 9 秒 |
+| 关闭插件 | 5 秒视频 | 无 | 反而更省时间 |
+
+**所以把这个仓库当技术记录看比较合适。** 是否启用，你自己权衡。
 
 ---
 
@@ -71,7 +96,7 @@ https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/rules/ppm-a
 
 ## 二、它到底拦了什么
 
-第二次抓包（`.har`，37 条请求）已经把链路拍得很清楚：
+三轮抓包拼出来的完整链路：
 
 | 域名 / 接口 | 角色 | 证据 |
 | --- | --- | --- |
@@ -81,53 +106,61 @@ https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/rules/ppm-a
 | `pagead2.googlesyndication-cn.com/pcs/activeview` | 曝光打点 | 200 |
 | `pagead2.googleadservices-cn.com/pagead/adview` | 广告展示页 | 200 |
 | `csi.gstatic.com/csi` | AdMob 性能打点 | 7 次，`layout=interstitial_campari_v7` |
-| `sdk.e.qq.com/mediation`、`/launch`、`/event` | **腾讯优量汇**（AdMob 聚合兜底） | `label=admob_mediation_request_fill_result`、`mediation_fill_status=-3.0.465.-3`（这次没填上） |
-| `api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads/` | 穿山甲拉广告 | 返回 `{"status_code":40006,"desc":"广告位ID不合法"}` |
-| `api-access.pangolin-sdk-toutiao**1**.com/...` | 穿山甲备用域名 | **多一个 `1`**，第一版就是漏在这里 |
-| `sf3/sf6-fe-tos.pglstatp-toutiao.com/obj/ad-pattern/...` | 穿山甲渲染器 | 507 KB × 2，纯浪费 |
+| `sdk.e.qq.com/mediation`、`/launch`、`/event` | **腾讯优量汇**（AdMob 聚合兜底） | `label=admob_mediation_request_fill_result`、`mediation_fill_status=-3.0.465.-3` |
+| `api-access.pangolin-sdk-toutiao*.com/.../get_ads/` | 穿山甲拉广告 | 返回 `{"status_code":40006,"desc":"广告位ID不合法"}` |
+| `sf*-fe-tos.pglstatp-toutiao.com/obj/ad-pattern/...` | 穿山甲渲染器 | 507 KB × 2，纯浪费 |
 | `toblog.ctobsnssdk.com` | 字节 AppLog / 设备注册 | `aid=164362`、`host_appid=5104488`，非广告 |
 | `mmbiz.qpic.cn` | 公众号文章配图（公告页） | 非广告 |
 
 插件按上面的顺序分三组拦截：AdMob（主）→ 优量汇（兜底）→ 穿山甲（备用）。
 
+> **穿山甲的域名会轮换**。三次抓包见到三种：
+> `.com` / `1.com` / `-b.com`。所以这一版改用 `DOMAIN-KEYWORD,pangolin-sdk-toutiao`，一次覆盖全部以及以后可能出现的新后缀。
+
 ---
 
-## 三、为什么第一版完全没生效（复盘）
+## 三、三轮抓包踩过的坑
 
-第一版只写了穿山甲相关的域名，实测无效。现在有数据，原因有三条：
+| | 第一轮 | 第二轮 | 第三轮 |
+| --- | --- | --- | --- |
+| 工具 | Loon | Stream | Loon |
+| 请求数 | 35 | 37 | 56 |
+| 抓到了什么 | 只有配置拉取和 SDK 初始化 | AdMob 真正投放 | 拦截后的效果 |
+| 结论 | 误判成穿山甲 | 定位到 AdMob | 发现反拦截弹窗 |
 
-1. **真正的广告来自 AdMob**。第一次抓包只抓了冷启动前 3 秒，AdMob 那条 `/mads/gma` 还没发出来，所以完全没被看见。
-2. **穿山甲的 `get_ads` 本来就是失败的**——返回 `40006 广告位ID不合法`。也就是说 App 里填的穿山甲广告位 ID 是无效的，它压根没在投广告。拦一个本来就不投广告的 SDK，当然没效果。
-3. **域名写漏了一个字符**。穿山甲有两个域名：
+**坑 1：把「存在」当成「因果」。** 第一轮看到穿山甲 SDK 的初始化请求，就认定广告来自穿山甲。但那只证明"接了这个 SDK"，不证明"广告从它来"。冷启动前 3 秒根本没发出广告请求。
 
-   ```
-   api-access.pangolin-sdk-toutiao.com     ← 第一版拦的
-   api-access.pangolin-sdk-toutiao1.com    ← 实际在用的（多一个 1）
-   ```
+**坑 2：穿山甲的 `get_ads` 一直是失败的。** 返回 `40006 广告位ID不合法`——开发商自己填的广告位 ID 是无效的，它压根没在投广告。拦一个不投广告的 SDK，自然没效果。
 
-   `DOMAIN-SUFFIX,pangolin-sdk-toutiao.com` 匹配不到 `...toutiao1.com`，因为它不是以 `.pangolin-sdk-toutiao.com` 结尾。
-
-这一版已全部修正。
+**坑 3：`DOMAIN-SUFFIX` 追不上域名轮换。** 先漏了 `toutiao1.com`，改完又漏了 `toutiao-b.com`。改用 `DOMAIN-KEYWORD` 才算完。
 
 ---
 
 ## 四、常见问题
 
 <details>
+<summary><b>为什么弹「故障」弹窗？能去掉吗？</b></summary>
+
+**去不掉。** 它是 App 里的 `UIAlertController`，触发点是广告 SDK 的失败回调，中间没有任何网络请求，Loon 无从下手。详细论证见 [docs/anti-adblock-dialog.md](docs/anti-adblock-dialog.md)。
+
+想不要弹窗，只能不拦广告（关掉插件），或者走官方的「喵喵特权」。
+</details>
+
+<details>
 <summary><b>装完还是看到开屏广告？</b></summary>
 
 1. **确认冷启动**：从后台划掉 App 再打开，不是切回前台。
-2. **确认没有别的去广告插件打架**：你之前提到开过其他插件。两个插件同时改同一批域名时，先禁用其他插件单独测这一版。
-3. **确认 AdMob 真的被拦了**：Loon → 仪表盘 → 请求记录，搜 `doubleclick`，应该看到大量 `REJECT`。
-4. 如果仍然出现，说明还有第四条链路没抓到。请抓一次**广告出现时**的 HAR（从点图标到广告消失），带给我。
+2. **关掉其他去广告插件**单独测，避免互相干扰。
+3. **确认 AdMob 真的被拦了**：Loon → 仪表盘 → 请求记录，搜 `doubleclick`，应该看到成片的 `REJECT`。
+4. 如果仍然出现，说明还有别的链路。请抓一次**广告出现时**的 HAR（从点图标到广告消失），带给我。
 </details>
 
 <details>
 <summary><b>为什么广告来源是 AdMob，一个国产 App 用 Google？</b></summary>
 
-App 是 `com.gentle.ppcat-free`（免费版），接 AdMob 在国内很常见——广告主出价高、填充率依赖代理网络。你抓包时出口 IP 在香港（`ip-api` 返回 `Kirino LLC`），所以 AdMob 能正常投放。
+App 是 `com.gentle.ppcat-free`（免费版），接 AdMob 在国内很常见——广告主出价高，但填充依赖代理网络。你抓包时出口 IP 在香港（`ip-api` 返回 `Kirino LLC`），所以 AdMob 能正常投放。
 
-反过来，如果你**不开代理**直连，AdMob 大概率也拉不到广告——但这只是一种现象，不是可靠的"去广告方法"。
+反过来，如果你**不开代理**直连，AdMob 大概率也拉不到广告——但这只是一种现象，不是可靠的"去广告方法"（而且照样会触发那个故障弹窗）。
 </details>
 
 <details>
@@ -156,13 +189,14 @@ AdMob SDK 在连接被拒绝时会走 `didFailToReceiveAd` 回调，App 随即�
 
 ```
 .
-├── ppm-ads.plugin          # Loon 插件本体（导入这个，无需其他文件）
+├── ppm-ads.plugin                  # Loon 插件本体（导入这个，无需其他文件）
 ├── rules/
-│   └── ppm-ads.list        # 纯规则版，可当规则订阅塞进主配置
+│   └── ppm-ads.list                # 纯规则版，可当规则订阅塞进主配置
 ├── scripts/
-│   └── geo-cn.js           # 可选：ip-api 归属地伪装（默认不启用）
+│   └── geo-cn.js                   # 可选：ip-api 归属地伪装（默认不启用）
 ├── docs/
-│   └── har-analysis.md     # 两轮抓包逐条分析
+│   ├── har-analysis.md             # 三轮抓包逐条分析
+│   └── anti-adblock-dialog.md      # 「故障」弹窗是什么、为什么去不掉
 ├── LICENSE
 └── README.md
 ```
