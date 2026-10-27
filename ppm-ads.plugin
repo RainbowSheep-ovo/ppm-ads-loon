@@ -1,0 +1,47 @@
+#!name=皮皮喵极速版 · 去广告
+#!desc=拦截穿山甲(Pangle/CSJ)广告拉取、SDK 埋点与 HTTP-DNS 下发，去掉开屏/插屏/信息流/激励视频；连带屏蔽试玩广告组件。纯规则实现，无需额外脚本。
+#!author=RainbowSheep-ovo
+#!homepage=https://github.com/RainbowSheep-ovo/ppm-ads-loon
+#!date=2026-10-28
+#!tag=去广告,皮皮喵
+
+[Rule]
+# ============================================================
+#  1. 穿山甲（Pangle / CSJUnion）广告投放域名
+#     这是本 App 的主广告 SDK（v5.5.0.7，appid 5000546）。
+#     其中 api-access.pangolin-sdk-toutiao.com/api/ad/union/sdk/get_ads
+#     是【唯一的广告拉取接口】，掐掉它 = 拉不到任何广告。
+# ============================================================
+DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
+DOMAIN-SUFFIX,pangle.io,REJECT
+DOMAIN-SUFFIX,pglstatp-toutiao.com,REJECT
+
+# 穿山甲创意的 c2s 上报 / 设备信息
+DOMAIN,ad.toutiao.com,REJECT
+DOMAIN,dm.toutiao.com,REJECT
+DOMAIN-SUFFIX,adshare.toutiao.com,REJECT
+
+# ============================================================
+#  2. 字节 SDK 埋点 & TTNet HTTP-DNS
+#     get_domains 会给 App 下发广告服务器 IP，掐掉可避免
+#     SDK 绕过域名直接从 IP 拉广告。
+# ============================================================
+DOMAIN,mssdk.volces.com,REJECT
+DOMAIN,tnc3-alisc1.zijieapi.com,REJECT
+DOMAIN,tnc0-alisc1.zijieapi.com,REJECT
+DOMAIN,tnc0-aliec2.zijieapi.com,REJECT
+DOMAIN,tnc0-bjlgy.zijieapi.com,REJECT
+
+[URL Rewrite]
+# ============================================================
+#  穿山甲「试玩广告(Playable)」组件
+#  lf-cdn-tos.bytescm.com 是字节公共 CDN，不能整域封掉，
+#  只精准拦截广告静态资源目录。
+# ============================================================
+^https?:\/\/lf-cdn-tos\.bytescm\.com\/obj\/static\/ad\/ reject-200
+^https?:\/\/lf1-cdn-tos\.bytegoofy\.com\/goofy\/fe\/ies\/bridge\/bytedance\/ reject-200
+^https?:\/\/lf3-static\.bytednsdoc\.com\/obj\/static\/ad\/ reject-200
+
+[MITM]
+# 上面三条 URL Rewrite 对应的 CDN 需要解密才能匹配到路径。
+hostname = lf-cdn-tos.bytescm.com,lf1-cdn-tos.bytegoofy.com,lf3-static.bytednsdoc.com

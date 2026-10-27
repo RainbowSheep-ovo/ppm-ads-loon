@@ -1,0 +1,25 @@
+# 皮皮喵极速版 · 广告域名规则集（纯 Rule 版本）
+#
+# 用途：不想装插件、只想把规则并进自己主配置 / 规则订阅的用户。
+# 用法：Loon 首页 → 配置 → 规则 → 添加规则订阅，填入本文件 raw 地址；
+#       订阅策略选「REJECT」或你自建的广告拦截策略组。
+#
+# 与 ppm-ads.plugin 相比，这里少了 URL Rewrite（试玩广告组件），
+# 那是可选的锦上添花，核心拦截靠下面的域名规则即可完成。
+
+# ---------- 穿山甲 Pangle / CSJUnion（主广告 SDK） ----------
+DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
+DOMAIN-SUFFIX,pangle.io,REJECT
+DOMAIN-SUFFIX,pglstatp-toutiao.com,REJECT
+
+# ---------- 穿山甲 c2s 上报 / 设备信息 ----------
+DOMAIN,ad.toutiao.com,REJECT
+DOMAIN,dm.toutiao.com,REJECT
+DOMAIN-SUFFIX,adshare.toutiao.com,REJECT
+
+# ---------- 字节 SDK 埋点 & TTNet HTTP-DNS ----------
+DOMAIN,mssdk.volces.com,REJECT
+DOMAIN,tnc3-alisc1.zijieapi.com,REJECT
+DOMAIN,tnc0-alisc1.zijieapi.com,REJECT
+DOMAIN,tnc0-aliec2.zijieapi.com,REJECT
+DOMAIN,tnc0-bjlgy.zijieapi.com,REJECT
