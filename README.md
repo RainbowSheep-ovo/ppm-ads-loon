@@ -9,38 +9,48 @@
 
 ## 一、安装
 
-### 方式 A：一键导入（推荐）
+### 方式 A：复制地址，粘进 Loon（推荐，最不容易失败）
 
-在 iPhone 上点下面的链接，Loon 会自动识别并弹出导入窗口。
+复制这一行：
 
-**通用链接**（微信/浏览器/App 里都能点）：
+```
+https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
+```
+
+然后：Loon → 底部 **配置** → **插件** → 右上角 **+** → 粘贴 → 保存 → 打开开关。
+
+### 方式 B：一键导入链接
+
+有的浏览器 / 微信内置浏览器会拦截自定义 scheme，点了没反应属正常，直接用方式 A。
+
+通用链接：
 
 https://www.nsloon.com/openloon/import?plugin=https%3A%2F%2Fraw.githubusercontent.com%2FRainbowSheep-ovo%2Fppm-ads-loon%2Fmain%2Fppm-ads.plugin
 
-**直达链接**（只有一个 `loon://` 超链接，在上面那条点不开时用）：
+直达链接：
 
 ```
 loon://import?plugin=https%3A%2F%2Fraw.githubusercontent.com%2FRainbowSheep-ovo%2Fppm-ads-loon%2Fmain%2Fppm-ads.plugin
 ```
 
-### 方式 B：手动添加
+### 方式 C：GitHub 打不开时（国内镜像，均已实测可拉到同一份文件）
 
-1. 复制插件地址：
+任选一条，用方式和 A 一样——复制、粘进 Loon 的插件地址栏：
 
-   ```
-   https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
-   ```
+```
+https://gh-proxy.com/https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
+```
 
-2. 打开 Loon → 底部 **配置** → **插件** → 右上角 **+** → 粘贴地址 → 保存。
-3. 确认插件开关为**开启**状态。
+```
+https://ghproxy.net/https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
+```
 
-### 方式 C：访问不了 GitHub 时
-
-任选一个镜像地址，内容与主仓库一致：
+```
+https://cdn.statically.io/gh/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
+```
 
 ```
 https://cdn.jsdelivr.net/gh/RainbowSheep-ovo/ppm-ads-loon@main/ppm-ads.plugin
-https://ghproxy.net/https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
 ```
 
 ### 方式 D：只要规则，不要插件
@@ -48,8 +58,10 @@ https://ghproxy.net/https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-l
 不想用插件、想把规则并进自己的主配置或规则组，可用纯规则版：
 
 ```
-loon://import?rules=https%3A%2F%2Fraw.githubusercontent.com%2FRainbowSheep-ovo%2Fppm-ads-loon%2Fmain%2Frules%2Fpangle-ads.list
+https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/rules/pangle-ads.list
 ```
+
+添加方式：Loon → 配置 → 规则 → 添加规则订阅 → 粘贴上面的地址 → 订阅策略选 `REJECT`。
 
 ### 安装后必做
 
