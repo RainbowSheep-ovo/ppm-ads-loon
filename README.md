@@ -11,10 +11,16 @@
 
 ### 方式 A：一键导入（推荐）
 
-在 iPhone 上点下面的链接，Loon 会自动识别并弹出导入窗口：
+在 iPhone 上点下面的链接，Loon 会自动识别并弹出导入窗口。
+
+**通用链接**（微信/浏览器/App 里都能点）：
+
+https://www.nsloon.com/openloon/import?plugin=https%3A%2F%2Fraw.githubusercontent.com%2FRainbowSheep-ovo%2Fppm-ads-loon%2Fmain%2Fppm-ads.plugin
+
+**直达链接**（只有一个 `loon://` 超链接，在上面那条点不开时用）：
 
 ```
-loon://import?plugin=https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
+loon://import?plugin=https%3A%2F%2Fraw.githubusercontent.com%2FRainbowSheep-ovo%2Fppm-ads-loon%2Fmain%2Fppm-ads.plugin
 ```
 
 ### 方式 B：手动添加
@@ -35,6 +41,14 @@ loon://import?plugin=https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-
 ```
 https://cdn.jsdelivr.net/gh/RainbowSheep-ovo/ppm-ads-loon@main/ppm-ads.plugin
 https://ghproxy.net/https://raw.githubusercontent.com/RainbowSheep-ovo/ppm-ads-loon/main/ppm-ads.plugin
+```
+
+### 方式 D：只要规则，不要插件
+
+不想用插件、想把规则并进自己的主配置或规则组，可用纯规则版：
+
+```
+loon://import?rules=https%3A%2F%2Fraw.githubusercontent.com%2FRainbowSheep-ovo%2Fppm-ads-loon%2Fmain%2Frules%2Fpangle-ads.list
 ```
 
 ### 安装后必做
